@@ -82,12 +82,16 @@ export const serializeStyles = async (node: any) => {
   const styles: any = {};
 
   if ("fills" in node) {
-    // Prefer named style over raw fill values when a style is applied.
     if (node.fillStyleId && typeof node.fillStyleId === "string") {
       const style = await figma.getStyleByIdAsync(node.fillStyleId);
       if (style) styles.fillStyle = style.name;
     }
-    const fills = serializePaints(node.fills);
+    let fills = serializePaints(node.fills);
+    // G1: fills empty but a fill style is set — read paints from the style object
+    if (fills === undefined && node.fillStyleId && typeof node.fillStyleId === "string") {
+      const style = await figma.getStyleByIdAsync(node.fillStyleId) as any;
+      if (style && Array.isArray(style.paints)) fills = serializePaints(style.paints);
+    }
     if (fills !== undefined) styles.fills = fills;
   }
 
@@ -122,7 +126,9 @@ export const serializeStyles = async (node: any) => {
     styles.bottomLeftRadius = node.bottomLeftRadius ?? 0;
   }
 
-  if ("strokeWeight" in node && node.strokeWeight) {
+  // D4: only emit stroke weight when strokes are actually present
+  if ("strokeWeight" in node && node.strokeWeight &&
+      Array.isArray(node.strokes) && node.strokes.length > 0) {
     styles.strokeWeight = node.strokeWeight;
     if ("strokeAlign" in node) styles.strokeAlign = node.strokeAlign;
   }
@@ -140,7 +146,12 @@ export const serializeStyles = async (node: any) => {
   }
 
   if ("effects" in node && Array.isArray(node.effects) && node.effects.length > 0) {
-    const active = node.effects.filter((e: any) => e.visible !== false);
+    // D3: filter out NOISE and any other non-CSS effect types
+    const active = node.effects.filter((e: any) =>
+      e.visible !== false &&
+      (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW" ||
+       e.type === "LAYER_BLUR" || e.type === "BACKGROUND_BLUR"),
+    );
     if (active.length > 0) {
       styles.effects = active.map((e: any) => {
         if (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW") {
@@ -180,6 +191,19 @@ export const serializeStyles = async (node: any) => {
   if ("layoutGrow" in node && node.layoutGrow) styles.layoutGrow = node.layoutGrow;
   if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE")
     styles.layoutPositioning = "ABSOLUTE";
+
+  // G6: rotation
+  if ("rotation" in node && node.rotation != null && node.rotation !== 0) {
+    styles.rotation = node.rotation;
+  }
+
+  // G4: isolation — set when any direct child has a non-default blend mode
+  if ("children" in node && Array.isArray(node.children)) {
+    const hasBlendChild = node.children.some(
+      (c: any) => "blendMode" in c && c.blendMode !== "NORMAL" && c.blendMode !== "PASS_THROUGH",
+    );
+    if (hasBlendChild) styles.isolate = true;
+  }
 
   return styles;
 };
@@ -244,19 +268,23 @@ export const serializeText = async (node: any, base: any) => {
   });
 };
 
-export const serializeNode = async (node: any): Promise<any> => {
+export const serializeNode = async (node: any, childIndex?: number): Promise<any> => {
   const styles = await serializeStyles(node);
-  const base = {
+  const base: any = {
     id: node.id,
     name: node.name,
     type: node.type,
     bounds: getBounds(node),
     styles,
   };
+  // G5: store child index so css-converter can derive z-index / order
+  if (childIndex !== undefined) base._order = childIndex;
   if (node.type === "TEXT") return serializeText(node, base);
   if ("children" in node) {
     return Object.assign({}, base, {
-      children: await Promise.all(node.children.map((child: any) => serializeNode(child))),
+      children: await Promise.all(
+        node.children.map((child: any, idx: number) => serializeNode(child, idx)),
+      ),
     });
   }
   return base;

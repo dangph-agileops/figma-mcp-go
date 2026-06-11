@@ -72,12 +72,14 @@ export function nodeToCss(n: any): string {
     ln.push(`mix-blend-mode: ${BLEND_MODE[s.blendMode]}`);
   }
 
+  // G4: isolation creates a stacking context when children have non-default blend modes
+  if (s.isolate) ln.push(`isolation: isolate`);
+
   if (Array.isArray(s.effects) && s.effects.length > 0) {
     const filters: string[] = [];
-    const shadows: string[] = [];
-    let backdrop = "";
     const dropShadows: string[] = [];
     const innerShadows: string[] = [];
+    let backdrop = "";
     for (const e of s.effects) {
       // D1 fix: Plugin API radius = 2× CSS blur sigma — halve it
       if (e.type === "LAYER_BLUR") filters.push(`blur(${e.blur / 2}px)`);
@@ -116,17 +118,27 @@ export function nodeToCss(n: any): string {
     );
   }
 
+  // G3: absolute positioning with parent-relative left/top from bounds (node.x/y is parent-relative)
+  if (s.layoutPositioning === "ABSOLUTE") {
+    ln.push(`position: absolute`);
+    if (b.x != null) ln.push(`left: ${b.x}px`);
+    if (b.y != null) ln.push(`top: ${b.y}px`);
+  }
+
   if (n.type === "TEXT") {
     if (s.fontFamily) ln.push(`font-family: '${s.fontFamily}', sans-serif`);
     if (s.fontSize) ln.push(`font-size: ${s.fontSize}px`);
     if (s.fontWeight) ln.push(`font-weight: ${s.fontWeight}`);
     if (s.lineHeight?.unit === "PERCENT") ln.push(`line-height: ${s.lineHeight.value}%`);
     if (s.lineHeight?.unit === "PIXELS") ln.push(`line-height: ${s.lineHeight.value}px`);
-    if (s.letterSpacing?.value)
-      ln.push(
-        `letter-spacing: ${s.letterSpacing.value}` +
-          `${s.letterSpacing.unit === "PERCENT" ? "em" : "px"}`,
-      );
+    // Letter-spacing fix: PERCENT in Figma = % of font size → divide by 100 for em
+    if (s.letterSpacing?.value) {
+      const ls =
+        s.letterSpacing.unit === "PERCENT"
+          ? `${+(s.letterSpacing.value / 100).toFixed(4)}em`
+          : `${s.letterSpacing.value}px`;
+      ln.push(`letter-spacing: ${ls}`);
+    }
     if (s.textAlignHorizontal) ln.push(`text-align: ${s.textAlignHorizontal.toLowerCase()}`);
     if (s.textCase && TEXT_TRANSFORM[s.textCase])
       ln.push(`text-transform: ${TEXT_TRANSFORM[s.textCase]}`);
@@ -136,17 +148,57 @@ export function nodeToCss(n: any): string {
   if (s.layoutAlign === "STRETCH") ln.push(`align-self: stretch`);
   if (s.layoutGrow === 1) ln.push(`flex-grow: 1`);
 
+  // G6: rotation — Figma rotation is clockwise degrees, same convention as CSS rotate()
+  if (s.rotation != null && s.rotation !== 0) {
+    ln.push(`transform: rotate(${s.rotation}deg)`);
+  }
+
+  // G5: z-index for absolute children; order for flex children (skip when value is 0)
+  if (n._order !== undefined && n._order > 0) {
+    if (s.layoutPositioning === "ABSOLUTE") ln.push(`z-index: ${n._order}`);
+    else ln.push(`order: ${n._order}`);
+  }
+
   return ln.map((l) => `  ${l};`).join("\n");
 }
 
 function fillToCss(fill: any): string | undefined {
   if (typeof fill === "string") return fill;
   if (!fill?.type) return undefined;
-  if (fill.type.endsWith("_GRADIENT") && Array.isArray(fill.stops)) {
+
+  if (fill.type === "LINEAR_GRADIENT" && Array.isArray(fill.stops)) {
+    // G2: derive CSS angle from Figma's 2×3 gradientTransform matrix
+    // The canonical gradient direction is (1,0) in gradient space.
+    // After transform [[a,b,tx],[c,d,ty]], the direction vector in node space is [a, c].
+    // CSS angle from top (0deg=up, 90deg=right): atan2(a, -c)
+    let angle = 180; // default: top-to-bottom
+    if (Array.isArray(fill.transform) && fill.transform.length === 2) {
+      const a = fill.transform[0][0];
+      const c = fill.transform[1][0];
+      angle = Math.round(((Math.atan2(a, -c) * 180) / Math.PI + 360) % 360);
+    }
     const stops = fill.stops
       .map((s: any) => `${s.color} ${Math.round(s.position * 100)}%`)
       .join(", ");
-    return `linear-gradient(${stops})`;
+    return `linear-gradient(${angle}deg, ${stops})`;
   }
+
+  if (fill.type === "RADIAL_GRADIENT" && Array.isArray(fill.stops)) {
+    const stops = fill.stops
+      .map((s: any) => `${s.color} ${Math.round(s.position * 100)}%`)
+      .join(", ");
+    return `radial-gradient(${stops})`;
+  }
+
+  if (
+    (fill.type === "ANGULAR_GRADIENT" || fill.type === "DIAMOND_GRADIENT") &&
+    Array.isArray(fill.stops)
+  ) {
+    const stops = fill.stops
+      .map((s: any) => `${s.color} ${Math.round(s.position * 100)}%`)
+      .join(", ");
+    return `conic-gradient(${stops})`;
+  }
+
   return undefined;
 }
