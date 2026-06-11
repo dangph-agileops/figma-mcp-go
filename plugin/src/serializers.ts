@@ -18,33 +18,64 @@ export const serializePaints = (paints: any) => {
   if (!paints || !Array.isArray(paints)) return undefined;
 
   const result = paints
-    .filter((paint: any) => paint.type === "SOLID" && "color" in paint)
+    .filter((p: any) => p.visible !== false)
     .map((paint: any) => {
-      const hex = toHex(paint.color);
-      const opacity = paint.opacity != null ? paint.opacity : 1;
-      if (opacity === 1) return hex;
-      return (
-        hex +
-        Math.round(opacity * 255)
-          .toString(16)
-          .padStart(2, "0")
-      );
-    });
+      if (paint.type === "SOLID" && "color" in paint) {
+        const hex = toHex(paint.color);
+        const opacity = paint.opacity != null ? paint.opacity : 1;
+        if (opacity === 1) return hex;
+        return hex + Math.round(opacity * 255).toString(16).padStart(2, "0");
+      }
+
+      if (
+        paint.type === "LINEAR_GRADIENT" ||
+        paint.type === "RADIAL_GRADIENT" ||
+        paint.type === "ANGULAR_GRADIENT" ||
+        paint.type === "DIAMOND_GRADIENT"
+      ) {
+        return {
+          type: paint.type,
+          stops: (paint.gradientStops ?? []).map((s: any) => ({
+            color:
+              toHex(s.color) +
+              (s.color.a < 1
+                ? Math.round(s.color.a * 255).toString(16).padStart(2, "0")
+                : ""),
+            position: pixelRound(s.position),
+          })),
+          transform: paint.gradientTransform,
+        };
+      }
+
+      if (paint.type === "IMAGE") {
+        return {
+          type: "IMAGE",
+          scaleMode: paint.scaleMode,
+          imageHash: paint.imageHash,
+        };
+      }
+
+      return undefined;
+    })
+    .filter(Boolean);
 
   return result.length > 0 ? result : undefined;
 };
 
 export const getBounds = (node: any) => {
-  if ("x" in node && "y" in node && "width" in node && "height" in node) {
-    return {
-      x: pixelRound(node.x),
-      y: pixelRound(node.y),
-      width: pixelRound(node.width),
-      height: pixelRound(node.height),
-    };
+  if (!("x" in node && "y" in node && "width" in node && "height" in node)) {
+    return undefined;
   }
-
-  return undefined;
+  const base = {
+    x: pixelRound(node.x),
+    y: pixelRound(node.y),
+    width: pixelRound(node.width),
+    height: pixelRound(node.height),
+  };
+  if ("constraints" in node && node.constraints) {
+    return { ...base, constraints: node.constraints };
+  }
+  return base;
 };
 
 export const serializeStyles = async (node: any) => {
@@ -82,6 +113,73 @@ export const serializeStyles = async (node: any) => {
       left: node.paddingLeft,
     };
   }
+
+  if ("cornerRadius" in node && isMixed(node.cornerRadius)) {
+    styles.cornerRadius = "mixed";
+    styles.topLeftRadius = node.topLeftRadius ?? 0;
+    styles.topRightRadius = node.topRightRadius ?? 0;
+    styles.bottomRightRadius = node.bottomRightRadius ?? 0;
+    styles.bottomLeftRadius = node.bottomLeftRadius ?? 0;
+  }
+
+  if ("strokeWeight" in node && node.strokeWeight) {
+    styles.strokeWeight = node.strokeWeight;
+    if ("strokeAlign" in node) styles.strokeAlign = node.strokeAlign;
+  }
+
+  if ("blendMode" in node && node.blendMode !== "NORMAL") {
+    styles.blendMode = node.blendMode;
+  }
+
+  if ("opacity" in node && node.opacity !== 1) {
+    styles.opacity = node.opacity;
+  }
+
+  if ("visible" in node && node.visible === false) {
+    styles.visible = false;
+  }
+
+  if ("effects" in node && Array.isArray(node.effects) && node.effects.length > 0) {
+    const active = node.effects.filter((e: any) => e.visible !== false);
+    if (active.length > 0) {
+      styles.effects = active.map((e: any) => {
+        if (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW") {
+          return {
+            type: e.type,
+            color:
+              toHex(e.color) +
+              (e.color.a < 1
+                ? Math.round(e.color.a * 255).toString(16).padStart(2, "0")
+                : ""),
+            offsetX: e.offset?.x ?? 0,
+            offsetY: e.offset?.y ?? 0,
+            blur: e.radius ?? 0,
+            spread: e.spread ?? 0,
+          };
+        }
+        if (e.type === "LAYER_BLUR" || e.type === "BACKGROUND_BLUR") {
+          return { type: e.type, blur: e.radius ?? 0 };
+        }
+        return { type: e.type };
+      });
+    }
+  }
+
+  if ("layoutMode" in node && node.layoutMode !== "NONE") {
+    styles.layoutMode = node.layoutMode;
+    styles.primaryAxisAlignItems = node.primaryAxisAlignItems;
+    styles.counterAxisAlignItems = node.counterAxisAlignItems;
+    styles.primaryAxisSizingMode = node.primaryAxisSizingMode;
+    styles.counterAxisSizingMode = node.counterAxisSizingMode;
+    styles.itemSpacing = node.itemSpacing;
+    if ("counterAxisSpacing" in node) styles.counterAxisSpacing = node.counterAxisSpacing;
+    if ("clipsContent" in node) styles.clipsContent = node.clipsContent;
+  }
+
+  if ("layoutAlign" in node) styles.layoutAlign = node.layoutAlign;
+  if ("layoutGrow" in node && node.layoutGrow) styles.layoutGrow = node.layoutGrow;
+  if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE")
+    styles.layoutPositioning = "ABSOLUTE";
 
   return styles;
 };
@@ -137,6 +235,11 @@ export const serializeText = async (node: any, base: any) => {
       textAlignHorizontal: isMixed(node.textAlignHorizontal)
         ? "mixed"
         : node.textAlignHorizontal,
+      textCase: isMixed(node.textCase)
+        ? "mixed"
+        : node.textCase !== "ORIGINAL"
+          ? node.textCase
+          : undefined,
     }),
   });
 };
@@ -172,6 +275,7 @@ export const deduplicateStyles = (tree: any): { tree: any; globalVars: Record<st
     if (s) {
       if (Array.isArray(s.fills)) counts.set(JSON.stringify(s.fills), (counts.get(JSON.stringify(s.fills)) ?? 0) + 1);
       if (Array.isArray(s.strokes)) counts.set(JSON.stringify(s.strokes), (counts.get(JSON.stringify(s.strokes)) ?? 0) + 1);
+      if (Array.isArray(s.effects)) counts.set(JSON.stringify(s.effects), (counts.get(JSON.stringify(s.effects)) ?? 0) + 1);
     }
     if (Array.isArray(node.children)) node.children.forEach(countWalk);
   };
@@ -204,6 +308,10 @@ export const deduplicateStyles = (tree: any): { tree: any; globalVars: Record<st
       if (Array.isArray(s.strokes)) {
         const ref = keyToRef.get(JSON.stringify(s.strokes));
         if (ref) newStyles = { ...newStyles, strokes: ref };
+      }
+      if (Array.isArray(s.effects)) {
+        const ref = keyToRef.get(JSON.stringify(s.effects));
+        if (ref) newStyles = { ...newStyles, effects: ref };
       }
       if (newStyles !== s) result = { ...node, styles: newStyles };
     }

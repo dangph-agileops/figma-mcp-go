@@ -1,4 +1,5 @@
 import { serializeNode, getBounds, serializeStyles, isMixed, deduplicateStyles } from "./serializers";
+import { nodeToCss } from "./css-converter";
 
 export const handleReadDocumentRequest = async (request: any) => {
   switch (request.type) {
@@ -425,6 +426,22 @@ export const handleReadDocumentRequest = async (request: any) => {
           matchingNodes,
           searchedTypes: types,
         },
+      };
+    }
+
+    case "get_css": {
+      const nodeIds: string[] = request.nodeIds ?? [];
+      const result: Record<string, string> = {};
+      for (const id of nodeIds) {
+        const n = await figma.getNodeByIdAsync(id);
+        if (!n) { result[id] = "/* node not found */"; continue; }
+        const serialized = await serializeNode(n as any);
+        result[id] = nodeToCss(serialized);
+      }
+      return {
+        type: request.type,
+        requestId: request.requestId,
+        data: result,
       };
     }
 

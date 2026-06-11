@@ -50,6 +50,20 @@ func registerReadDocumentTools(s *server.MCPServer, node *Node) {
 		return renderResponse(resp, err)
 	})
 
+	s.AddTool(mcp.NewTool("get_css",
+		mcp.WithDescription("Return ready-to-use CSS for one or more nodes. Covers layout (flexbox), fills (solid + gradient), strokes, effects (shadows/blur), typography, border-radius, opacity, blend mode, and visibility. Returns a map of nodeId → CSS block string."),
+		mcp.WithArray("nodeIds",
+			mcp.Required(),
+			mcp.Description("Node IDs in colon format e.g. ['118:650', '118:656']"),
+			mcp.WithStringItems(),
+		),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		raw, _ := req.GetArguments()["nodeIds"].([]interface{})
+		nodeIDs := toStringSlice(raw)
+		resp, err := node.Send(ctx, "get_css", nodeIDs, nil)
+		return renderResponse(resp, err)
+	})
+
 	s.AddTool(mcp.NewTool("get_design_context",
 		mcp.WithDescription("Get a depth-limited, token-efficient tree of the current selection or page. Use this instead of get_document when exploring large files. Supports detail levels (minimal/compact/full) and dedupe_components for pages heavy with repeated component instances."),
 		mcp.WithNumber("depth",
