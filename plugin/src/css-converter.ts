@@ -43,7 +43,8 @@ export function nodeToCss(n: any): string {
   if (b.width != null) ln.push(`width: ${b.width}px`);
   if (b.height != null) ln.push(`height: ${b.height}px`);
 
-  if (Array.isArray(s.fills)) {
+  // TEXT fills are text color, not background — handled in the typography block below
+  if (n.type !== "TEXT" && Array.isArray(s.fills)) {
     const bgs = s.fills.map(fillToCss).filter(Boolean) as string[];
     if (bgs.length) ln.push(`background: ${bgs.join(", ")}`);
   }
@@ -101,7 +102,7 @@ export function nodeToCss(n: any): string {
   if (s.layoutMode && s.visible !== false) {
     ln.push(`display: flex`);
     ln.push(`flex-direction: ${FLEX_DIRECTION[s.layoutMode] ?? "row"}`);
-    if (s.primaryAxisAlignItems)
+    if (s.primaryAxisAlignItems && s.primaryAxisAlignItems !== "MIN")
       ln.push(`justify-content: ${JUSTIFY_CONTENT[s.primaryAxisAlignItems] ?? "flex-start"}`);
     if (s.counterAxisAlignItems)
       ln.push(`align-items: ${ALIGN_ITEMS[s.counterAxisAlignItems] ?? "flex-start"}`);
@@ -111,11 +112,11 @@ export function nodeToCss(n: any): string {
 
   if (s.padding) {
     const { top, right, bottom, left } = s.padding;
-    ln.push(
-      top === right && right === bottom && bottom === left
-        ? `padding: ${top}px`
-        : `padding: ${top}px ${right}px ${bottom}px ${left}px`,
-    );
+    let p: string;
+    if (top === right && right === bottom && bottom === left) p = `${top}px`;
+    else if (top === bottom && left === right) p = `${top}px ${right}px`;
+    else p = `${top}px ${right}px ${bottom}px ${left}px`;
+    ln.push(`padding: ${p}`);
   }
 
   // G3: absolute positioning with parent-relative left/top from bounds (node.x/y is parent-relative)
