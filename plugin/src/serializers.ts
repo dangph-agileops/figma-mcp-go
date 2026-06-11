@@ -192,9 +192,17 @@ export const serializeStyles = async (node: any) => {
   if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE")
     styles.layoutPositioning = "ABSOLUTE";
 
-  // G6: rotation
-  if ("rotation" in node && node.rotation != null && node.rotation !== 0) {
-    styles.rotation = node.rotation;
+  // G6: use relativeTransform for accurate CSS transform (handles flip/rotate/scale correctly)
+  // node.rotation alone is lossy — a horizontal flip reports as rotation:-180 but needs matrix()
+  if ("relativeTransform" in node) {
+    const [[a, b], [c, d]] = node.relativeTransform; // ignore tx/ty — position handled by bounds
+    const isIdentity =
+      Math.abs(a - 1) < 0.0001 && Math.abs(b) < 0.0001 &&
+      Math.abs(c) < 0.0001 && Math.abs(d - 1) < 0.0001;
+    if (!isIdentity) {
+      // Figma row-major [[a,b],[c,d]] → CSS column-major matrix(a, c, b, d, 0, 0)
+      styles.transform = [+a.toFixed(6), +c.toFixed(6), +b.toFixed(6), +d.toFixed(6), 0, 0];
+    }
   }
 
   // G4: isolation — set when any direct child has a non-default blend mode
@@ -268,7 +276,11 @@ export const serializeText = async (node: any, base: any) => {
   });
 };
 
-export const serializeNode = async (node: any, childIndex?: number): Promise<any> => {
+export const serializeNode = async (
+  node: any,
+  childIndex?: number,
+  parentForceAbsolute = false,
+): Promise<any> => {
   const styles = await serializeStyles(node);
   const base: any = {
     id: node.id,
@@ -279,11 +291,21 @@ export const serializeNode = async (node: any, childIndex?: number): Promise<any
   };
   // G5: store child index so css-converter can derive z-index / order
   if (childIndex !== undefined) base._order = childIndex;
+  // GROUP children and non-auto-layout FRAME children are always absolutely positioned
+  if (parentForceAbsolute && !styles.layoutPositioning) {
+    styles.layoutPositioning = "ABSOLUTE";
+  }
   if (node.type === "TEXT") return serializeText(node, base);
   if ("children" in node) {
+    // Force absolute on children when parent has no layout system (GROUP or non-auto FRAME)
+    const forceAbsoluteChildren =
+      node.type === "GROUP" ||
+      (node.type === "FRAME" && (!node.layoutMode || node.layoutMode === "NONE"));
     return Object.assign({}, base, {
       children: await Promise.all(
-        node.children.map((child: any, idx: number) => serializeNode(child, idx)),
+        node.children.map((child: any, idx: number) =>
+          serializeNode(child, idx, forceAbsoluteChildren),
+        ),
       ),
     });
   }

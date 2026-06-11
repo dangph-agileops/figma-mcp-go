@@ -149,9 +149,20 @@ export function nodeToCss(n: any): string {
   if (s.layoutAlign === "STRETCH") ln.push(`align-self: stretch`);
   if (s.layoutGrow === 1) ln.push(`flex-grow: 1`);
 
-  // G6: rotation — Figma rotation is clockwise degrees, same convention as CSS rotate()
-  if (s.rotation != null && s.rotation !== 0) {
-    ln.push(`transform: rotate(${s.rotation}deg)`);
+  // G6: CSS transform from relativeTransform (handles flip/rotate/scale correctly)
+  if (Array.isArray(s.transform) && s.transform.length === 6) {
+    const [a, b, c, d] = s.transform;
+    // Simplify unit rotation matrices to rotate(Ndeg) for readability
+    const isPureRotation =
+      Math.abs(a * a + b * b - 1) < 0.001 &&
+      Math.abs(a - d) < 0.001 &&
+      Math.abs(b + c) < 0.001;
+    if (isPureRotation) {
+      const deg = Math.round(Math.atan2(b, a) * 180 / Math.PI);
+      if (deg !== 0) ln.push(`transform: rotate(${deg}deg)`);
+    } else {
+      ln.push(`transform: matrix(${s.transform.map((v: number) => +v.toFixed(6)).join(", ")})`);
+    }
   }
 
   // G5: z-index for absolute children; order for flex children (skip when value is 0)
