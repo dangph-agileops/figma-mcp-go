@@ -130,6 +130,7 @@ export function nodeToCss(n: any): string {
     if (s.fontFamily) ln.push(`font-family: '${s.fontFamily}', sans-serif`);
     if (s.fontSize) ln.push(`font-size: ${s.fontSize}px`);
     if (s.fontWeight) ln.push(`font-weight: ${s.fontWeight}`);
+    if (s.lineHeight?.unit === "AUTO") ln.push(`line-height: normal`);
     if (s.lineHeight?.unit === "PERCENT") ln.push(`line-height: ${s.lineHeight.value}%`);
     if (s.lineHeight?.unit === "PIXELS") ln.push(`line-height: ${s.lineHeight.value}px`);
     // Letter-spacing fix: PERCENT in Figma = % of font size → divide by 100 for em

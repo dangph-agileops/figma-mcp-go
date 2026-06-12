@@ -219,7 +219,8 @@ export const serializeStyles = async (node: any) => {
 export const serializeLineHeight = (lineHeight: any) => {
   if (isMixed(lineHeight)) return "mixed";
 
-  if (!lineHeight || lineHeight.unit === "AUTO") return undefined;
+  if (!lineHeight) return undefined;
+  if (lineHeight.unit === "AUTO") return { unit: "AUTO" };
 
   return { value: lineHeight.value, unit: lineHeight.unit };
 };
