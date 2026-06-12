@@ -78,24 +78,22 @@ export function nodeToCss(n: any): string {
 
   if (Array.isArray(s.effects) && s.effects.length > 0) {
     const filters: string[] = [];
-    const dropShadows: string[] = [];
-    const innerShadows: string[] = [];
+    const boxShadows: string[] = [];
     let backdrop = "";
     for (const e of s.effects) {
       // D1 fix: Plugin API radius = 2× CSS blur sigma — halve it
       if (e.type === "LAYER_BLUR") filters.push(`blur(${e.blur / 2}px)`);
       if (e.type === "BACKGROUND_BLUR") backdrop = `backdrop-filter: blur(${e.blur / 2}px)`;
-      // D2 fix: DROP_SHADOW → filter:drop-shadow (shape-aware); INNER_SHADOW → box-shadow inset
+      // DROP_SHADOW → box-shadow (supports spread; filter:drop-shadow does not)
       if (e.type === "DROP_SHADOW")
-        dropShadows.push(`drop-shadow(${e.offsetX}px ${e.offsetY}px ${e.blur}px ${e.color})`);
+        boxShadows.push(`${e.offsetX}px ${e.offsetY}px ${e.blur}px ${e.spread ?? 0}px ${e.color}`);
       if (e.type === "INNER_SHADOW")
-        innerShadows.push(
+        boxShadows.push(
           `inset ${e.offsetX}px ${e.offsetY}px ${e.blur}px ${e.spread ?? 0}px ${e.color}`,
         );
     }
-    const allFilters = [...filters, ...dropShadows];
-    if (allFilters.length) ln.push(`filter: ${allFilters.join(" ")}`);
-    if (innerShadows.length) ln.push(`box-shadow: ${innerShadows.join(", ")}`);
+    if (filters.length) ln.push(`filter: ${filters.join(" ")}`);
+    if (boxShadows.length) ln.push(`box-shadow: ${boxShadows.join(", ")}`);
     if (backdrop) ln.push(backdrop);
   }
 
