@@ -44,7 +44,8 @@ export function nodeToCss(n: any): string {
   if (b.height != null) ln.push(`height: ${b.height}px`);
 
   // TEXT fills are text color, not background — handled in the typography block below
-  if (n.type !== "TEXT" && Array.isArray(s.fills)) {
+  // Mask nodes: fills drive the mask channel (alpha/luminance/shape), not visual appearance
+  if (n.type !== "TEXT" && !s.isMask && Array.isArray(s.fills)) {
     const bgs = s.fills.map(fillToCss).filter(Boolean) as string[];
     if (bgs.length) ln.push(`background: ${bgs.join(", ")}`);
   }

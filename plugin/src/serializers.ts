@@ -192,6 +192,11 @@ export const serializeStyles = async (node: any) => {
   if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE")
     styles.layoutPositioning = "ABSOLUTE";
 
+  if ("isMask" in node && node.isMask) {
+    styles.isMask = true;
+    if ("maskType" in node) styles.maskType = node.maskType; // ALPHA | VECTOR | LUMINANCE
+  }
+
   // G6: use relativeTransform for accurate CSS transform (handles flip/rotate/scale correctly)
   // node.rotation alone is lossy — a horizontal flip reports as rotation:-180 but needs matrix()
   if ("relativeTransform" in node) {
